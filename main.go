@@ -55,12 +55,14 @@ var (
 	debug                 = kingpin.Flag("debug", "Debug mode").Default("false").Envar("SNS_FORWARDER_DEBUG").Bool()
 	arnPrefix             = kingpin.Flag("arn-prefix", "Prefix to use for ARNs").Envar("SNS_FORWARDER_ARN_PREFIX").String()
 	snsSubject            = kingpin.Flag("sns-subject", "SNS subject").Envar("SNS_SUBJECT").String()
+	subjectTemplatePath   = kingpin.Flag("subject-template-path", "Subject Template path").Envar("SNS_SUBJECT_TEMPLATE_PATH").String()
 	templatePath          = kingpin.Flag("template-path", "Template path").Envar("SNS_FORWARDER_TEMPLATE_PATH").String()
 	templateTimeZone      = kingpin.Flag("template-time-zone", "Template time zone").Envar("SNS_FORWARDER_TEMPLATE_TIME_ZONE").String()
 	templateTimeOutFormat = kingpin.Flag("template-time-out-format", "Template time out format").Envar("SNS_FORWARDER_TEMPLATE_TIME_OUT_FORMAT").String()
 	templateSplitToken    = kingpin.Flag("template-split-token", "Template split token").Envar("SNS_FORWARDER_TEMPLATE_SPLIT_TOKEN").String()
 	svc                   *sns.SNS
 	tmpH                  *template.Template
+	subjectTmpH           *template.Template
 
 	namespace = "forwarder"
 	subsystem = "sns"
@@ -106,6 +108,12 @@ func main() {
 		tmpH = loadTemplate(templatePath)
 	} else {
 		tmpH = nil
+	}
+
+	if subjectTemplatePath != nil && *subjectTemplatePath != "" {
+		subjectTmpH = loadTemplate(subjectTemplatePath)
+	} else {
+		subjectTmpH = nil
 	}
 
 	if *snsSubject == "" {
@@ -230,6 +238,38 @@ func AlertFormatTemplate(alerts Alerts) string {
 		panic(err)
 	}
 
+	subjectTmpH.Funcs(funcMap)
+	err = subjectTmpH.Execute(writer, alerts)
+
+	if err != nil {
+		log.Fatalf("Problem with subject template execution: %v", err)
+		panic(err)
+	}
+
+	return bytesBuff.String()
+}
+
+// AlertFormatSubjectTemplate applies the template to the Alerts
+func AlertFormatSubjectTemplate(alerts Alerts) string {
+	var bytesBuff bytes.Buffer
+	var err error
+
+	writer := io.Writer(&bytesBuff)
+
+	if *debug {
+		log.Printf("Reloading Subject Template\n")
+		// reload template bacause we in debug mode
+		subjectTmpH = loadTemplate(subjectTemplatePath)
+	}
+
+	subjectTmpH.Funcs(funcMap)
+	err = subjectTmpH.Execute(writer, alerts)
+
+	if err != nil {
+		log.Fatalf("Problem with subject template execution: %v", err)
+		panic(err)
+	}
+
 	return bytesBuff.String()
 }
 
@@ -243,12 +283,19 @@ func alertPOSTHandler(c *gin.Context) {
 	}
 	requestString := string(requestData)
 
+	var alerts Alerts
+	json.Unmarshal(requestData, &alerts)
+
 	if templatePath != nil && tmpH != nil {
-		var alerts Alerts
-
-		json.Unmarshal(requestData, &alerts)
-
 		requestString = AlertFormatTemplate(alerts)
+	}
+
+	var finalSnsSubject string
+
+	if subjectTemplatePath != nil && subjectTmpH != nil {
+		finalSnsSubject = AlertFormatSubjectTemplate(alerts)
+	} else {
+		finalSnsSubject = *snsSubject
 	}
 
 	topic := c.Params.ByName("topic")
@@ -261,12 +308,13 @@ func alertPOSTHandler(c *gin.Context) {
 	}
 
 	log.Debugf("Using topic ARN: %s", topicArn)
+	log.Debugf("Alert Subject: %s", finalSnsSubject)
 	log.Debugln("+------------------  A L E R T  J S O N  -------------------+")
 	log.Debugf("%s", requestString)
 	log.Debugln("+-----------------------------------------------------------+")
 
 	params := &sns.PublishInput{
-		Subject:  snsSubject,
+		Subject:  &finalSnsSubject,
 		Message:  aws.String(requestString),
 		TopicArn: aws.String(topicArn),
 	}

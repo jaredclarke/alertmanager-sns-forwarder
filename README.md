@@ -71,12 +71,15 @@ The settings for using templates are available as the following flags or env var
 
 Flag                         | Env Variable                             | Default       | Description
 -----------------------------|------------------------------------------|---------------|------------
+`--subject-template-path`    | `SNS_SUBJECT_TEMPLATE_PATH`              |               | Subject Template path
 `--template-path`            | `SNS_FORWARDER_TEMPLATE_PATH`            |               | Template path
 `--template-time-zone`       | `SNS_FORWARDER_TEMPLATE_TIME_ZONE`       |               | Template time zone
 `--template-time-out-format` | `SNS_FORWARDER_TEMPLATE_TIME_OUT_FORMAT` |               | Template time out format
 `--template-split-token`     | `SNS_FORWARDER_TEMPLATE_SPLIT_TOKEN`     |               | Token used for split measure label
 
 There are also an [example template file](testdata/default.tmpl) along with an [example payload json](testdata/simple.json) provided.
+
+`SNS_SUBJECT_TEMPLATE_PATH` will override values set in `SNS_SUBJECT` - the alerts json object is passed into the template and can be used to customise the subject based on context.
 
 ### Endpoints
 
